@@ -1,0 +1,296 @@
+---
+title: "Prediction of Mental Health in Medical Workers during COVID-19"
+author:
+  - Amogh BAdugu
+  - Arushi Agrawal
+  - Shyam Krishna
+  
+date: "December 4, 2021"
+output:
+  html_document: default
+  pdf_document:
+    fig_width: 10
+    fig_height: 6
+    highlight: tango
+  word_document: default
+---
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(caret)
+library(randomForest)
+```
+
+```{r}
+data = read.csv('health_data.csv')
+all_cols = c("Age","Gender","The.only.child","Place.of.residence","Town.or.country","Education","Occupation","Post","Working.years","Marital.status","Have.minor.children.or.not","Whether.the.minor.child.is.an.only.child","Primary.caregiver.for.children","Primary.caregiver.for.elderly.parents","Work.units.nature","Title","Employment.type","Monthly.income","Annual.family.income","Changes.in.work.intensity","Working.hours.per.week","Usual.sleep.time","Resting.place","Have.COVID.19.patients.or.not.in.the.workplace","In.close.contact.with.COVID.19.patients.in.the.workplace","Have.COVID.19.patients.or.not.in.the.living.place","The.work.unit.is.a.designated.treatment.point.or.not","Satisfaction.level.with.the.protective.measures","Psychological.training","Chronic.disease","Current.job.is.supported.by.family","Frequency.of.exercise")
+
+non_cat_cols = c('Age','Education','Annual.family.income','Working.years','Monthly.income',
+                'Working.hours.per.week','Usual.sleep.time')
+
+cat_cols = setdiff(all_cols, non_cat_cols)
+
+data[,cat_cols] <- lapply(data[,cat_cols],as.factor)
+data[non_cat_cols] <- sapply(data[non_cat_cols],as.numeric)
+
+x_data = data[1:32]
+
+```
+
+
+Trianing-Validation-Testing Split
+```{r}
+idx <- sample(seq(1, 3), size = nrow(data), replace = TRUE, prob = c(.7, .15, .15))
+train <- data[idx == 1,]
+val <- data[idx == 2,]
+test <- data[idx == 3,]
+```
+c(1,2,9,11,14,27,42,45)
+
+
+Modeling it as a binary problem - have mental issues or not
+```{r}
+# Training variables
+x_train = train[1:32]
+
+# Y variable
+y_column = 9
+y_variable = paste0('X.',y_column,'.')
+y_train = train[y_variable]
+y_train = ifelse(train[y_variable] >= 2, 1, 0)
+
+train_data = cbind(y_train,x_train)
+colnames(train_data)[which(names(train_data) == y_variable)] <- "target"
+
+# Logistic Regression
+logistic_temp <- glm(target ~ ., train_data, family = binomial(link = "logit"))
+
+
+probabilities <- logistic_temp %>% predict(val[1:32], type = "response")
+y_pred_variable = paste(y_variable, 'pred')
+val[y_pred_variable] = probabilities
+y_val = as.factor(ifelse(val[y_variable] >= 2, 1, 0))
+cut_point = 0.5
+y_pred = as.factor(ifelse(probabilities > cut_point, 1, 0))
+
+print(table(y_val, y_pred))
+precision <- posPredValue(y_pred, y_val, positive="1")
+recall <- sensitivity(y_pred, y_val, positive="1")
+F1 <- (2 * precision * recall) / (precision + recall)
+print(paste(cut_point, precision, recall, F1))
+print('###')
+print(table(train_data['target']))
+
+print(confusionMatrix(data=y_pred, reference = y_val))
+summary(logistic_temp)
+```
+
+
+
+```{r}
+library(MASS)
+logistic_step <- logistic_temp %>% stepAIC(trace = FALSE)
+probabilities <- logistic_step %>% predict(val[1:32], type = "response")
+y_pred_variable = paste(y_variable, 'pred')
+val[y_pred_variable] = probabilities
+y_val = as.factor(ifelse(val[y_variable] >= 2, 1, 0))
+cut_point = 0.5
+y_pred = as.factor(ifelse(probabilities > cut_point, 1, 0))
+
+print(table(y_val, y_pred))
+precision <- posPredValue(y_pred, y_val, positive="1")
+recall <- sensitivity(y_pred, y_val, positive="1")
+F1 <- (2 * precision * recall) / (precision + recall)
+print(paste(cut_point, precision, recall, F1))
+print('###')
+print(table(train_data['target']))
+
+print(confusionMatrix(data=y_pred, reference = y_val))
+summary(logistic_step)
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+# Training variables
+F1_rose_diff_list <- c()
+F1_ovun_diff_list <- c()
+run_test <- c(20,51)
+F1_logistic_list <- c() 
+F1_logistic_rose_list <- c()
+F1_logistic_ovun_list <- c()
+for (test_i in run_test)
+{
+i = test_i+32
+cols = colnames(train)
+x_train = train[1:32]
+
+# Y variable
+y_variable = cols[i]
+# Converting y_variable into binary
+y_train = ifelse(train[y_variable] >= 2, 1, 0)
+train_data = cbind(y_train,x_train)
+colnames(train_data)[which(names(train_data) == y_variable)] <- "target"
+
+# Logistic Regression
+logistic_temp <- glm(target ~ ., train_data, family = binomial(link = "logit"))
+probabilities <- logistic_temp %>% predict(val[1:32], type = "response")
+y_pred_variable = paste(y_variable, '_logistic_pred')
+y_val = as.factor(ifelse(val[y_variable] >= 2, 1, 0))
+cut_point = 0.5
+y_pred = as.factor(ifelse(probabilities > cut_point, 1, 0))
+val[y_pred_variable] = y_pred
+
+#Results intially
+precision_logistic <- posPredValue(y_pred, y_val, positive="1")
+recall_logistic <- sensitivity(y_pred, y_val, positive="1")
+F1_logistic <- (2 * precision_logistic * recall_logistic) / (precision_logistic + recall_logistic)
+F1_logistic_list = c(F1_logistic_list,F1_logistic)
+
+train_rose = ROSE(target ~ ., data = train_data,p=0.5, seed = 1)$data
+
+logistic_rose <- glm(target ~ ., train_rose, family = binomial(link = "logit"))
+probabilities_rose <- logistic_rose %>% predict(val[1:32], type = "response")
+y_pred_variable = paste(y_variable, '_rose_logistic_pred')
+y_val_rose = as.factor(ifelse(val[y_variable] >= 2, 1, 0))
+cut_point = 0.5
+y_pred_rose = as.factor(ifelse(probabilities_rose > cut_point, 1, 0))
+val[y_pred_variable] = y_pred_rose
+
+## Results after ROSE
+precision_logistic_rose <- posPredValue(y_pred_rose, y_val_rose, positive="1")
+recall_logistic_rose <- sensitivity(y_pred_rose, y_val_rose, positive="1")
+F1_logistic_rose <- (2 * precision_logistic_rose * recall_logistic_rose) / (precision_logistic_rose + recall_logistic_rose)
+F1_logistic_rose_list = c(F1_logistic_rose_list,F1_logistic_rose)
+print(confusionMatrix(data=y_pred_rose, reference = y_val_rose))
+
+train_ovun = ovun.sample(target ~ ., data = train_data, method = "both", p=0.5, seed = 1)$data
+
+logistic_ovun <- glm(target ~ ., train_ovun, family = binomial(link = "logit"))
+probabilities_ovun <- logistic_ovun %>% predict(val[1:32], type = "response")
+y_pred_variable = paste(y_variable, '_ovun_logistic_pred')
+y_val_ovun = as.factor(ifelse(val[y_variable] >= 2, 1, 0))
+cut_point = 0.5
+y_pred_ovun = as.factor(ifelse(probabilities_ovun > cut_point, 1, 0))
+val[y_pred_variable] = y_pred_ovun
+
+## Results after Ovun
+precision_logistic_ovun <- posPredValue(y_pred_ovun, y_val_ovun, positive="1")
+recall_logistic_ovun <- sensitivity(y_pred_ovun, y_val_ovun, positive="1")
+F1_logistic_ovun <- (2 * precision_logistic_ovun * recall_logistic_ovun) / (precision_logistic_ovun + recall_logistic_ovun)
+
+print(confusionMatrix(data=y_pred_ovun, reference = y_val_ovun))
+
+
+F1_logistic_ovun_list = c(F1_logistic_ovun_list,F1_logistic_ovun)
+
+F1_rose_diff = F1_logistic_rose - F1_logistic
+F1_rose_diff_list = c(F1_rose_diff_list,F1_rose_diff)
+
+F1_ovun_diff = F1_logistic_ovun - F1_logistic
+F1_ovun_diff_list = c(F1_ovun_diff_list,F1_ovun_diff)
+
+print(i)
+}
+```
+
+```{r}
+# Training variables
+x_train = train[1:32]
+
+# Y variable
+y_variable = 'X.89.'
+# Converting y_variable into binary
+y_train = ifelse(train[y_variable] >= 2, 1, 0)
+x_train = cbind(y_train,x_train)
+colnames(x_train)[which(names(x_train) == y_variable)] <- "target"
+
+```
+
+
+```{r}
+# Random forest
+# Training variables
+cols = colnames(train)
+x_train = train[1:32]
+
+i = 41
+# Y variable
+y_variable = cols[i]
+# Converting y_variable into binary
+y_train = ifelse(train[y_variable] >= 2, 1, 0)
+x_train = cbind(y_train,x_train)
+colnames(x_train)[which(names(x_train) == y_variable)] <- "target"
+
+x_train$target <- as.factor(x_train$target)
+train_rose = ROSE(target ~ ., data = x_train,p=0.5, seed = 1)$data
+train_rose$target <- as.factor(train_rose$target)
+
+train_ovun = ovun.sample(target ~ ., data = x_train, method = "both", p=0.5, seed = 1)$data
+train_ovun$target <- as.factor(train_ovun$target)
+
+rf <- randomForest(target ~ ., data = x_train, importance = TRUE,
+                        proximity = TRUE)
+
+rf_rose <- randomForest(target ~ ., data = train_rose, importance = TRUE,
+                        proximity = TRUE)
+rf_ovun <- randomForest(target ~ ., data = train_ovun, importance = TRUE,
+                        proximity = TRUE)
+
+
+pred = predict(rf, newdata=test[1:32])
+pred_rose = predict(rf_rose, newdata=test[1:32])
+pred_ovun = predict(rf_ovun, newdata=test[1:32])
+
+y_val = as.factor(ifelse(test[y_variable] >= 2, 1, 0))
+
+## Random forest results
+precision_rf <- posPredValue(pred, y_val, positive="1")
+recall_rf <- sensitivity(pred, y_val, positive="1")
+F1_rf <- (2 * precision_rf * recall_rf) / (precision_rf + recall_rf)
+cm_rf = table(y_val, pred)
+
+##Random forest reults after ROSE
+precision_rose_rf <- posPredValue(pred_rose, y_val, positive="1")
+recall_rose_rf <- sensitivity(pred_rose, y_val, positive="1")
+F1_rose_rf <- (2 * precision_rose_rf * recall_rose_rf) / (precision_rose_rf + recall_rose_rf)
+cm_rose_rf = table(y_val, pred_rose)
+
+##Random forest reults after OVUN
+precision_ovun_rf <- posPredValue(pred_ovun, y_val, positive="1")
+recall_ovun_rf <- sensitivity(pred_ovun, y_val, positive="1")
+F1_ovun_rf <- (2 * precision_ovun_rf * recall_ovun_rf) / (precision_ovun_rf + recall_ovun_rf)
+cm_ovun_rf = table(y_val, pred_ovun)
+
+## Variable Importance
+vip(rf)
+```
+
+
+
+
+```{r}
+##LIME explanations
+model_rf <- caret::train(target ~ ., data = x_train,method = "rf", #random forest
+trControl = trainControl(method = "repeatedcv", number = 5,repeats = 1, verboseIter = FALSE))
+pred_rf <- predict(model_rf, test[1:32])
+
+x_test = test[1:32]
+y_variable = cols[i]
+# Converting y_variable into binary
+y_test = ifelse(test[y_variable] >= 2, 1, 0)
+x_test = cbind(y_test,x_test)
+colnames(x_test)[which(names(x_test) == y_variable)] <- "target"
+
+x_test$target <- as.factor(x_test$target)
+
+explainer <- lime(x_train, model_rf)
+explanation <- explain(x_test[5,], explainer, n_labels = 1,n_features = 10)
+plot_features(explanation)
+
+```
